@@ -1,6 +1,9 @@
 import React, { useRef, useEffect, useState } from 'react';
 import { Button, Card, Typography, Space, Alert, Steps } from 'antd';
 import { CameraOutlined, CameraTwoTone } from '@ant-design/icons';
+import { useNavigate, useParams } from 'react-router-dom';
+import { useProctoringDetection } from '../../hooks/useProctoringDetection';
+import { FaceLandmarker, FilesetResolver } from '@mediapipe/tasks-vision';
 
 const { Title, Text } = Typography;
 const { Step } = Steps;
@@ -16,6 +19,9 @@ const HeadCalibrationPage: React.FC = () => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const faceLandmarkerRef = useRef<FaceLandmarker | null>(null);
+  const navigate = useNavigate();
+  const { token } = useParams();
 
   const [step, setStep] = useState(0);
   const [feedback, setFeedback] = useState('Position your face in the center');
@@ -23,6 +29,44 @@ const HeadCalibrationPage: React.FC = () => {
   const [videoReady, setVideoReady] = useState(false);
   const [cameraAccess, setCameraAccess] = useState(false);
   const [calibrationImage, setCalibrationImage] = useState<string | null>(null);
+  const [isProcessing, setIsProcessing] = useState(false);
+
+  const { initialize, calibrate, isInitialized } = useProctoringDetection();
+
+  // Initialize MediaPipe Face Landmarker for calibration
+  useEffect(() => {
+    const initializeFaceLandmarker = async () => {
+      try {
+        const filesetResolver = await FilesetResolver.forVisionTasks(
+          'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/wasm'
+        );
+
+        faceLandmarkerRef.current = await FaceLandmarker.createFromOptions(filesetResolver, {
+          baseOptions: {
+            modelAssetPath:
+              'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task',
+            delegate: 'GPU'
+          },
+          runningMode: 'IMAGE',
+          numFaces: 1
+        });
+
+        // Initialize the proctoring service
+        await initialize();
+      } catch (error) {
+        console.error('Failed to initialize Face Landmarker:', error);
+        setCameraError('Failed to initialize face detection');
+      }
+    };
+
+    initializeFaceLandmarker();
+
+    return () => {
+      if (faceLandmarkerRef.current) {
+        faceLandmarkerRef.current.close();
+      }
+    };
+  }, [initialize]);
 
   const initializeCamera = async () => {
     console.log('📸 Initializing camera');
@@ -53,20 +97,58 @@ const HeadCalibrationPage: React.FC = () => {
     }
   };
 
-  const captureCalibrationImage = () => {
-    if (!videoRef.current || !canvasRef.current) return;
+  const captureCalibrationImage = async () => {
+    if (!videoRef.current || !canvasRef.current || !faceLandmarkerRef.current) {
+      setFeedback('Unable to capture image. Please try again.');
+      return;
+    }
 
-    const canvas = canvasRef.current;
-    const context = canvas.getContext('2d');
-    if (!context) return;
+    setIsProcessing(true);
+    setFeedback('Processing calibration...');
 
-    canvas.width = videoRef.current.videoWidth;
-    canvas.height = videoRef.current.videoHeight;
-    context.drawImage(videoRef.current, 0, 0);
-    const imageData = canvas.toDataURL('image/jpeg', 0.8);
-    setCalibrationImage(imageData);
-    setFeedback('Calibration image captured successfully!');
-    setStep(3);
+    try {
+      const canvas = canvasRef.current;
+      const context = canvas.getContext('2d');
+      if (!context) return;
+
+      canvas.width = videoRef.current.videoWidth;
+      canvas.height = videoRef.current.videoHeight;
+      context.drawImage(videoRef.current, 0, 0);
+      
+      const imageData = canvas.toDataURL('image/jpeg', 0.8);
+
+      // Detect face landmarks
+      const result = await faceLandmarkerRef.current.detect(videoRef.current);
+      
+      if (!result.faceLandmarks || result.faceLandmarks.length === 0) {
+        setFeedback('No face detected. Please ensure your face is clearly visible.');
+        setIsProcessing(false);
+        return;
+      }
+
+      // Calibrate the proctoring system with detected landmarks
+      const landmarks = result.faceLandmarks[0];
+      const calibrationData = calibrate(landmarks, imageData);
+      
+      setCalibrationImage(imageData);
+      setFeedback('Calibration successful! Redirecting to test...');
+      setStep(3);
+
+      // Store calibration data in sessionStorage for the test interface
+      sessionStorage.setItem('calibrationData', JSON.stringify(calibrationData));
+      sessionStorage.setItem('calibrationImage', imageData);
+
+      // Navigate to test interface after a short delay
+      setTimeout(() => {
+        navigate(`/test/${token}/interview`);
+      }, 2000);
+
+    } catch (error) {
+      console.error('Calibration error:', error);
+      setFeedback('Calibration failed. Please try again.');
+    } finally {
+      setIsProcessing(false);
+    }
   };
 
   useEffect(() => {
@@ -152,6 +234,27 @@ const HeadCalibrationPage: React.FC = () => {
                   }}
                 />
                 <canvas ref={canvasRef} style={{ display: 'none' }} />
+                
+                {calibrationImage && (
+                  <div
+                    style={{
+                      position: 'absolute',
+                      top: '10px',
+                      right: '10px',
+                      width: '120px',
+                      height: '90px',
+                      border: '2px solid #52c41a',
+                      borderRadius: '8px',
+                      overflow: 'hidden',
+                    }}
+                  >
+                    <img
+                      src={calibrationImage}
+                      alt="Calibration"
+                      style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                    />
+                  </div>
+                )}
               </Card>
             </div>
 
@@ -160,7 +263,7 @@ const HeadCalibrationPage: React.FC = () => {
                 <Alert
                   message="Status"
                   description={feedback}
-                  type={cameraAccess ? 'success' : 'info'}
+                  type={step === 3 ? 'success' : cameraAccess ? 'info' : 'warning'}
                   showIcon
                 />
 
@@ -173,6 +276,19 @@ const HeadCalibrationPage: React.FC = () => {
                   />
                 )}
 
+                <Alert
+                  message="Calibration Instructions"
+                  description={
+                    <ul style={{ margin: '8px 0', paddingLeft: '20px' }}>
+                      <li>Ensure good lighting on your face</li>
+                      <li>Look directly at the camera</li>
+                      <li>Keep your head straight and centered</li>
+                      <li>Remove glasses if they cause glare</li>
+                    </ul>
+                  }
+                  type="info"
+                />
+
                 {!cameraAccess ? (
                   <Button
                     type="primary"
@@ -180,8 +296,10 @@ const HeadCalibrationPage: React.FC = () => {
                     onClick={() => setVideoReady(true)}
                     size="large"
                     style={{ width: '100%' }}
+                    disabled={!isInitialized}
+                    loading={!isInitialized}
                   >
-                    Initialize Camera
+                    {isInitialized ? 'Initialize Camera' : 'Loading...'}
                   </Button>
                 ) : (
                   <Button
@@ -190,9 +308,10 @@ const HeadCalibrationPage: React.FC = () => {
                     onClick={captureCalibrationImage}
                     size="large"
                     style={{ width: '100%' }}
-                    disabled={step === 3}
+                    disabled={step === 3 || isProcessing}
+                    loading={isProcessing}
                   >
-                    Capture Calibration Image
+                    {isProcessing ? 'Processing...' : 'Capture Calibration Image'}
                   </Button>
                 )}
               </Space>
