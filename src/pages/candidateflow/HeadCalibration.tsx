@@ -288,7 +288,7 @@ const HeadCalibrationPage: React.FC = () => {
                   }
                   type="info"
                 />
-
+f
                 {!cameraAccess ? (
                   <Button
                     type="primary"

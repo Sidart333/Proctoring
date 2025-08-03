@@ -41,6 +41,7 @@ const TestInterface: React.FC = () => {
     const [warningSnapshots, setWarningSnapshots] = useState<string[]>([]);
     const [showViolationHistory, setShowViolationHistory] = useState(false);
     const [testStarted, setTestStarted] = useState(false);
+    const [isActuallyFullscreen, setIsActuallyFullscreen] = useState(false);
 
     // Face detection proctoring hook
     const {
@@ -99,6 +100,24 @@ const TestInterface: React.FC = () => {
         getViolationMessage()
     ].filter(Boolean).join(' | ');
 
+
+    useEffect(() => {
+    const handleFullscreenChange = () => {
+        setIsActuallyFullscreen(!!document.fullscreenElement);
+    };
+
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    document.addEventListener('webkitfullscreenchange', handleFullscreenChange);
+    
+    // Check initial state
+    setIsActuallyFullscreen(!!document.fullscreenElement);
+
+    return () => {
+        document.removeEventListener('fullscreenchange', handleFullscreenChange);
+        document.removeEventListener('webkitfullscreenchange', handleFullscreenChange);
+    };
+}, []);
+
     // Initialize proctoring on mount
     useEffect(() => {
         const initProctoring = async () => {
@@ -115,19 +134,32 @@ const TestInterface: React.FC = () => {
 
     const initializeCamera = async () => {
         try {
+             if (videoRef.current?.srcObject) {
+            console.log('Camera already initialized');
+            return;
+        }
             const stream = await navigator.mediaDevices.getUserMedia({
                 video: { width: 640, height: 480, facingMode: 'user' },
+                audio: false
             });
 
             if (videoRef.current) {
                 videoRef.current.srcObject = stream;
-                videoRef.current.onloadedmetadata = () => {
-                    videoRef.current?.play();
-                    setCameraReady(true);
-                };
-            }
+                videoRef.current.play().then(() => {
+                console.log('Video playing');
+                setCameraReady(true);
+            }).catch(err => {
+                console.error('Error playing video:', err);
+            });
+        }
+            //     videoRef.current.onloadedmetadata = () => {
+            //         videoRef.current?.play();
+            //         setCameraReady(true);
+            //     };
+            // }
         } catch (error) {
             console.error('Camera initialization failed:', error);
+            alert('camera access denied. please allow camera access and refresh the page.')
         }
     };
 
@@ -239,15 +271,30 @@ const TestInterface: React.FC = () => {
         setQuestionIndex((prev) => (prev + 1) % mockQuestions.length);
     };
 
-    useEffect(() => {
-        initializeCamera();
+    // useEffect(() => {
+    //     initializeCamera();
         
-        return () => {
-            if (isMonitoring) {
-                stopMonitoring();
-            }
-        };
-    }, []);
+    //     return () => {
+    //         if (isMonitoring) {
+    //             stopMonitoring();
+    //         }
+    //     };
+    // }, []);
+    useEffect(() => {
+    // Small delay to ensure DOM is ready
+    const timer = setTimeout(() => {
+        initializeCamera();
+    }, 100);
+
+    return () => {
+        clearTimeout(timer);
+        // Cleanup camera stream on unmount
+        if (videoRef.current?.srcObject) {
+            const stream = videoRef.current.srcObject as MediaStream;
+            stream.getTracks().forEach(track => track.stop());
+        }
+    };
+}, []);
 
     // Determine overall warning level
     const getOverallWarningLevel = () => {
@@ -370,7 +417,11 @@ const TestInterface: React.FC = () => {
                             width: '100%', 
                             borderRadius: '8px', 
                             backgroundColor: '#000',
-                            border: isAnyWarning ? '3px solid #ff4d4f' : 'none'
+                            border: isAnyWarning ? '3px solid #ff4d4f' : 'none',
+                            transform: 'scaleX(-1)'
+                        }}
+                        onLoadedMetadata={()=>{
+                            console.log('video metadata loaded');
                         }}
                     />
                     <canvas ref={canvasRef} style={{ display: 'none' }} />
@@ -420,7 +471,7 @@ const TestInterface: React.FC = () => {
                         type="primary"
                         icon={<AudioOutlined />}
                         onClick={startRecording}
-                        disabled={isRecording}
+                        disabled={isRecording || !isActuallyFullscreen}
                     >
                         Start Recording
                     </Button>
@@ -428,7 +479,7 @@ const TestInterface: React.FC = () => {
                     <Button
                         danger
                         onClick={stopRecording}
-                        disabled={!isRecording}
+                        disabled={!isRecording || !isActuallyFullscreen}
                         style={{ marginLeft: '10px' }}
                     >
                         Stop Recording
@@ -453,7 +504,7 @@ const TestInterface: React.FC = () => {
                     <Button
                         type="primary"
                         onClick={submitAnswer}
-                        disabled={!transcription.trim()}
+                        disabled={!transcription.trim() || isActuallyFullscreen}
                     >
                         Submit Answer
                     </Button>
