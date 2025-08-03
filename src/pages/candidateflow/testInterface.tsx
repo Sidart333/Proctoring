@@ -133,35 +133,32 @@ const TestInterface: React.FC = () => {
     }, [initialize]);
 
     const initializeCamera = async () => {
-        try {
-             if (videoRef.current?.srcObject) {
-            console.log('Camera already initialized');
-            return;
+    console.log('initializeCamera called');
+    console.log('videoRef.current:', videoRef.current);
+    
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+            video: true,
+            audio: false
+        });
+        
+        console.log('Stream obtained:', stream);
+        console.log('Video tracks:', stream.getVideoTracks());
+        
+        if (videoRef.current) {
+            videoRef.current.srcObject = stream;
+            console.log('srcObject set');
+            
+            await videoRef.current.play();
+            console.log('Play called successfully');
+            setCameraReady(true);
+        } else {
+            console.error('videoRef.current is null');
         }
-            const stream = await navigator.mediaDevices.getUserMedia({
-                video: { width: 640, height: 480, facingMode: 'user' },
-                audio: false
-            });
-
-            if (videoRef.current) {
-                videoRef.current.srcObject = stream;
-                videoRef.current.play().then(() => {
-                console.log('Video playing');
-                setCameraReady(true);
-            }).catch(err => {
-                console.error('Error playing video:', err);
-            });
-        }
-            //     videoRef.current.onloadedmetadata = () => {
-            //         videoRef.current?.play();
-            //         setCameraReady(true);
-            //     };
-            // }
-        } catch (error) {
-            console.error('Camera initialization failed:', error);
-            alert('camera access denied. please allow camera access and refresh the page.')
-        }
-    };
+    } catch (error) {
+        console.error('Camera error details:', error);
+    }
+};
 
     // Start test and all monitoring
     const handleStartTest = async () => {
