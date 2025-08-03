@@ -124,12 +124,12 @@ export function useBrowserProctoring(options: UseBrowserProctoringOptions = {}):
   }, [updateState]);
 
   // Enter fullscreen
-  const enterFullscreen = useCallback(async () => {
+ const enterFullscreen = useCallback(async (element?: HTMLElement) => {
     if (!serviceRef.current) return;
     
-    await serviceRef.current.enterFullscreen();
+    await serviceRef.current.enterFullscreen(element);
     updateState();
-  }, [updateState]);
+}, [updateState]);
 
   // Clear violations
   const clearViolations = useCallback(() => {

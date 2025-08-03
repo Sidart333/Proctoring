@@ -34,6 +34,23 @@ export const ProctoringOverlay: React.FC<ProctoringOverlayProps> = ({
 }) => {
   const [showTerminateModal, setShowTerminateModal] = useState(false);
   const [countdown, setCountdown] = useState<number | null>(null);
+  const [actuallyFullScreen, setActuallyFullScreen] = useState(false)
+
+
+  useEffect(()=>{
+    const handleFullscreenChange = () =>{
+      setActuallyFullScreen(!!document.fullscreenElement);
+    }
+
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    document.addEventListener('webkitfullscreenchange', handleFullscreenChange);
+
+    setActuallyFullScreen(!!document.fullscreenElement);
+    return () =>{
+      document.removeEventListener('fullscreenchange', handleFullscreenChange);
+      document.removeEventListener('webkitfulllscreenchange', handleFullscreenChange)
+    }
+  },[])
 
   // Auto-countdown for high warning level
   useEffect(() => {
@@ -84,7 +101,7 @@ export const ProctoringOverlay: React.FC<ProctoringOverlayProps> = ({
   return (
     <>
       {/* Fullscreen Prompt */}
-      {showFullscreenPrompt && !isFullscreen && (
+      {showFullscreenPrompt && !isFullscreen && !actuallyFullScreen && (
         <div
           style={{
             position: 'fixed',
@@ -110,7 +127,17 @@ export const ProctoringOverlay: React.FC<ProctoringOverlayProps> = ({
             type="primary"
             size="large"
             icon={<FullscreenOutlined />}
-            onClick={onEnterFullscreen}
+            onClick={()=>{
+              document.documentElement.requestFullscreen()
+              .then(()=>{
+                console.log('full screen entered');
+                onEnterFullscreen();
+              })
+              .catch((err)=>{
+                console.error('fullscreen error:', err);
+                onEnterFullscreen();
+              });
+            }}
           >
             Enter Fullscreen Mode
           </Button>
